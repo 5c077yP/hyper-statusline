@@ -5,6 +5,7 @@ const color = require('color');
 const path = require('path');
 const afterAll = require('after-all-results');
 const tildify = require('tildify');
+const { EventEmitter } = require('events');
 
 exports.decorateConfig = (config) => {
     const colorForeground = color(config.foregroundColor);
@@ -129,19 +130,23 @@ exports.decorateConfig = (config) => {
     });
 };
 
-let pid;
-let cwd;
-let git = {
+const initialGitState = () => ({
     branch: '',
     remote: '',
     dirty: 0,
     behind: 0,
     ahead: 0
-}
+})
+
+let pid;
+let cwd;
+let git = initialGitState();
+const notifications = new EventEmitter();
 
 const setCwd = (pid) => {
     exec(`lsof -p ${pid} | awk '$4=="cwd"' | tr -s ' ' | cut -d ' ' -f9-`, (err, stdout) => {
         cwd = stdout.trim();
+        notifications.emit('update::cwd', cwd)
         setGit(cwd);
     });
 };
@@ -221,13 +226,8 @@ const gitCheck = (repo, cb) => {
 const setGit = (repo) => {
     isGit(repo, (exists) => {
         if (!exists) {
-            git = {
-                branch: '',
-                remote: '',
-                dirty: 0,
-                behind: 0,
-                ahead: 0
-            }
+            git = initialGitState();
+            notifications.emit('update::git', git);
 
             return;
         }
@@ -244,6 +244,7 @@ const setGit = (repo) => {
                 behind: result.behind,
                 ahead: result.ahead
             }
+            notifications.emit('update::git', git);
         })
     });
 }
@@ -253,17 +254,12 @@ exports.decorateHyper = (Hyper, { React }) => {
         constructor(props) {
             super(props);
 
-            this.state = {
-                cwd: '',
-                branch: '',
-                remote: '',
-                dirty: 0,
-                behind: 0,
-                ahead: 0
-            }
+            this.state = Object.assign({ cwd: '' }, initialGitState());
 
             this.handleCwdClick = this.handleCwdClick.bind(this);
             this.handleBranchClick = this.handleBranchClick.bind(this);
+            this.handleCwdUpdate = this.handleCwdUpdate.bind(this);
+            this.handleGitUpdate = this.handleGitUpdate.bind(this);
         }
 
         handleCwdClick(event) {
@@ -272,6 +268,14 @@ exports.decorateHyper = (Hyper, { React }) => {
 
         handleBranchClick(event) {
             shell.openExternal(this.state.remote);
+        }
+
+        handleCwdUpdate(cwd) {
+            this.setState({ cwd });
+        }
+
+        handleGitUpdate(git) {
+            this.setState(git);
         }
 
         render() {
@@ -300,20 +304,19 @@ exports.decorateHyper = (Hyper, { React }) => {
         }
 
         componentDidMount() {
-            this.interval = setInterval(() => {
-                this.setState({
-                    cwd: cwd,
-                    branch: git.branch,
-                    remote: git.remote,
-                    dirty: git.dirty,
-                    behind: git.behind,
-                    ahead: git.ahead
-                });
-            }, 100);
+            // update state with current values
+            this.setState(Object.assign({ cwd: cwd }, git));
+
+            // update state for `cwd` changes
+            notifications.on('update::cwd', this.handleCwdUpdate);
+
+            // update state for `git` changes
+            notifications.on('update::git', this.handleGitUpdate);
         }
 
         componentWillUnmount() {
-            clearInterval(this.interval);
+            notifications.removeListener('update::cwd', this.handleCwdUpdate);
+            notifications.removeListener('update::git', this.handleGitUpdate);
         }
     };
 };
