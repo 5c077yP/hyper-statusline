@@ -7,40 +7,46 @@ const afterAll = require('after-all-results');
 const tildify = require('tildify');
 const { EventEmitter } = require('events');
 
-exports.decorateConfig = (config) => {
-    const colorForeground = color(config.foregroundColor);
-    const colorBackground = color(config.backgroundColor);
-    const colors = {
-        foreground: colorForeground.string(),
-        background: colorBackground.lighten(0.3).string()
-    };
+exports.decorateConfig = config => {
+  const colorForeground = color(config.foregroundColor);
+  const colorBackground = color(config.backgroundColor);
+  const colors = {
+    foreground: colorForeground.string(),
+    background: colorBackground.lighten(0.3).string(),
+  };
 
-    const configColors = Object.assign({
-        black: '#000000',
-        red: '#ff0000',
-        green: '#33ff00',
-        yellow: '#ffff00',
-        blue: '#0066ff',
-        magenta: '#cc00ff',
-        cyan: '#00ffff',
-        white: '#d0d0d0',
-        lightBlack: '#808080',
-        lightRed: '#ff0000',
-        lightGreen: '#33ff00',
-        lightYellow: '#ffff00',
-        lightBlue: '#0066ff',
-        lightMagenta: '#cc00ff',
-        lightCyan: '#00ffff',
-        lightWhite: '#ffffff'
-    }, config.colors);
+  const configColors = Object.assign(
+    {
+      black: '#000000',
+      red: '#ff0000',
+      green: '#33ff00',
+      yellow: '#ffff00',
+      blue: '#0066ff',
+      magenta: '#cc00ff',
+      cyan: '#00ffff',
+      white: '#d0d0d0',
+      lightBlack: '#808080',
+      lightRed: '#ff0000',
+      lightGreen: '#33ff00',
+      lightYellow: '#ffff00',
+      lightBlue: '#0066ff',
+      lightMagenta: '#cc00ff',
+      lightCyan: '#00ffff',
+      lightWhite: '#ffffff',
+    },
+    config.colors,
+  );
 
-    const hyperStatusLine = Object.assign({
-        footerTransparent: true,
-        dirtyColor: configColors.lightYellow,
-    }, config.hyperStatusLine);
+  const hyperStatusLine = Object.assign(
+    {
+      footerTransparent: true,
+      dirtyColor: configColors.lightYellow,
+    },
+    config.hyperStatusLine,
+  );
 
-    return Object.assign({}, config, {
-        css: `
+  return Object.assign({}, config, {
+    css: `
             ${config.css || ''}
             .terms_terms {
                 margin-bottom: 30px;
@@ -126,228 +132,314 @@ exports.decorateConfig = (config) => {
                 -webkit-mask-size: 12px 12px;
                 background-color: ${hyperStatusLine.dirtyColor};
             }
-        `
-    });
+        `,
+  });
 };
 
 const initialGitState = () => ({
-    branch: '',
-    remote: '',
-    dirty: 0,
-    behind: 0,
-    ahead: 0
-})
+  branch: '',
+  remote: '',
+  dirty: 0,
+  behind: 0,
+  ahead: 0,
+});
 
 let pid;
 let cwd;
 let git = initialGitState();
 const notifications = new EventEmitter();
 
-const setCwd = (pid) => {
-    exec(`lsof -p ${pid} | awk '$4=="cwd"' | tr -s ' ' | cut -d ' ' -f9-`, (err, stdout) => {
-        cwd = stdout.trim();
-        notifications.emit('update::cwd', cwd)
-        setGit(cwd);
-    });
-};
+const setCwd = pid =>
+  exec(
+    `lsof -p ${pid} | awk '$4=="cwd"' | tr -s ' ' | cut -d ' ' -f9-`,
+    (err, stdout) => {
+      cwd = stdout.trim();
+      notifications.emit('update::cwd', cwd);
+      setGit(cwd);
+    },
+  );
 
-const isGit = (dir, cb) => {
-    stat(path.join(dir, '.git'), (err) => {
-        cb(!err);
-    });
-}
+const isGit = (dir, cb) =>
+  stat(path.join(dir, '.git'), err => {
+    cb(!err);
+  });
 
-const gitBranch = (repo, cb) => {
-    exec(`git symbolic-ref --short HEAD || git rev-parse --short HEAD`, { cwd: repo }, (err, stdout) => {
-        if (err) {
-            return cb(err);
-        }
+const gitBranch = (repo, cb) =>
+  exec(
+    `git symbolic-ref --short HEAD || git rev-parse --short HEAD`,
+    { cwd: repo },
+    (err, stdout) => {
+      if (err) {
+        return cb(err);
+      }
 
-        cb(null, stdout.trim());
-    });
-}
+      cb(null, stdout.trim());
+    },
+  );
 
-const gitRemote = (repo, cb) => {
-    exec(`git ls-remote --get-url`, { cwd: repo }, (err, stdout) => {
-        cb(null, stdout.trim().replace(/^git@(.*?):/, 'https://$1/').replace(/[A-z0-9\-]+@/, '').replace(/\.git$/, ''));
-    });
-}
+const gitRemote = (repo, cb) =>
+  exec(`git ls-remote --get-url`, { cwd: repo }, (err, stdout) => {
+    cb(
+      null,
+      stdout
+        .trim()
+        .replace(/^git@(.*?):/, 'https://$1/')
+        .replace(/[A-z0-9\-]+@/, '')
+        .replace(/\.git$/, ''),
+    );
+  });
 
-const gitDirty = (repo, cb) => {
-    exec(`git status --porcelain --ignore-submodules -uno`, { cwd: repo }, (err, stdout) => {
-        if (err) {
-            return cb(err);
-        }
+const gitDirty = (repo, cb) =>
+  exec(
+    `git status --porcelain --ignore-submodules -uno`,
+    { cwd: repo },
+    (err, stdout) => {
+      if (err) {
+        return cb(err);
+      }
 
-        cb(null, !stdout ? 0 : parseInt(stdout.trim().split('\n').length, 10));
-    });
-}
+      cb(null, !stdout ? 0 : parseInt(stdout.trim().split('\n').length, 10));
+    },
+  );
 
-const gitBehind = (repo, cb) => {
-    exec(`git rev-list --right-only --count 'HEAD...@{u}' 2>/dev/null`, { cwd: repo }, (err, stdout) => {
-        cb(null, parseInt(stdout, 10));
-    });
-}
+const gitBehind = (repo, cb) =>
+  exec(
+    `git rev-list --right-only --count 'HEAD...@{u}' 2>/dev/null`,
+    { cwd: repo },
+    (err, stdout) => {
+      cb(null, parseInt(stdout, 10));
+    },
+  );
 
-const gitAhead = (repo, cb) => {
-    exec(`git rev-list --left-only --count 'HEAD...@{u}' 2>/dev/null`, { cwd: repo }, (err, stdout) => {
-        cb(null, parseInt(stdout, 10));
-    });
-}
+const gitAhead = (repo, cb) =>
+  exec(
+    `git rev-list --left-only --count 'HEAD...@{u}' 2>/dev/null`,
+    { cwd: repo },
+    (err, stdout) => {
+      cb(null, parseInt(stdout, 10));
+    },
+  );
 
 const gitCheck = (repo, cb) => {
-    const next = afterAll((err, results) => {
-        if (err) {
-            return cb(err);
-        }
-
-        const branch = results[0];
-        const remote = results[1];
-        const dirty = results[2];
-        const behind = results[3];
-        const ahead = results[4];
-
-        cb(null, {
-            branch: branch,
-            remote: remote,
-            dirty: dirty,
-            behind: behind,
-            ahead: ahead
-        });
-    });
-
-    gitBranch(repo, next());
-    gitRemote(repo, next());
-    gitDirty(repo, next());
-    gitBehind(repo, next());
-    gitAhead(repo, next());
-}
-
-const setGit = (repo) => {
-    isGit(repo, (exists) => {
-        if (!exists) {
-            git = initialGitState();
-            notifications.emit('update::git', git);
-
-            return;
-        }
-
-        gitCheck(repo, (err, result) => {
-            if (err) {
-                throw err;
-            }
-
-            git = {
-                branch: result.branch,
-                remote: result.remote,
-                dirty: result.dirty,
-                behind: result.behind,
-                ahead: result.ahead
-            }
-            notifications.emit('update::git', git);
-        })
-    });
-}
-
-exports.decorateHyper = (Hyper, { React }) => {
-    return class extends React.PureComponent {
-        constructor(props) {
-            super(props);
-
-            this.state = Object.assign({ cwd: '' }, initialGitState());
-
-            this.handleCwdClick = this.handleCwdClick.bind(this);
-            this.handleBranchClick = this.handleBranchClick.bind(this);
-            this.handleCwdUpdate = this.handleCwdUpdate.bind(this);
-            this.handleGitUpdate = this.handleGitUpdate.bind(this);
-        }
-
-        handleCwdClick(event) {
-            shell.openExternal('file://' + this.state.cwd);
-        }
-
-        handleBranchClick(event) {
-            shell.openExternal(this.state.remote);
-        }
-
-        handleCwdUpdate(cwd) {
-            this.setState({ cwd });
-        }
-
-        handleGitUpdate(git) {
-            this.setState(git);
-        }
-
-        render() {
-            const { customChildren } = this.props
-            const existingChildren = customChildren ? customChildren instanceof Array ? customChildren : [customChildren] : [];
-
-            return (
-                React.createElement(Hyper, Object.assign({}, this.props, {
-                    customInnerChildren: existingChildren.concat(React.createElement('footer', { className: 'footer_footer' },
-                        React.createElement('div', { className: 'footer_group group_overflow' },
-                            React.createElement('div', { className: 'component_component component_cwd' },
-                                React.createElement('div', { className: 'component_item item_icon item_cwd item_clickable', title: this.state.cwd, onClick: this.handleCwdClick, hidden: !this.state.cwd }, this.state.cwd ? tildify(String(this.state.cwd)) : '')
-                            )
-                        ),
-                        React.createElement('div', { className: 'footer_group' },
-                            React.createElement('div', { className: 'component_component component_git' },
-                                React.createElement('div', { className: `component_item item_icon item_branch ${this.state.remote ? 'item_clickable' : ''}`, title: this.state.remote, onClick: this.handleBranchClick, hidden: !this.state.branch }, this.state.branch),
-                                React.createElement('div', { className: 'component_item item_icon item_number item_dirty', title: `${this.state.dirty} dirty ${this.state.dirty > 1 ? 'files' : 'file'}`, hidden: !this.state.dirty }, this.state.dirty),
-                                React.createElement('div', { className: 'component_item item_number item_behind', title: `${this.state.behind} ${this.state.behind > 1 ? 'commits' : 'commit'} behind`, hidden: !this.state.behind }, '↓' + this.state.behind),
-                                React.createElement('div', { className: 'component_item item_number item_ahead', title: `${this.state.ahead} ${this.state.ahead > 1 ? 'commits' : 'commit'} ahead`, hidden: !this.state.ahead }, '↑' + this.state.ahead)
-                            )
-                        )
-                    ))
-                }))
-            );
-        }
-
-        componentDidMount() {
-            // update state with current values
-            this.setState(Object.assign({ cwd: cwd }, git));
-
-            // update state for `cwd` changes
-            notifications.on('update::cwd', this.handleCwdUpdate);
-
-            // update state for `git` changes
-            notifications.on('update::git', this.handleGitUpdate);
-        }
-
-        componentWillUnmount() {
-            notifications.removeListener('update::cwd', this.handleCwdUpdate);
-            notifications.removeListener('update::git', this.handleGitUpdate);
-        }
-    };
-};
-
-exports.middleware = (store) => (next) => (action) => {
-    const uids = store.getState().sessions.sessions;
-
-    switch (action.type) {
-        case 'SESSION_SET_XTERM_TITLE':
-            pid = uids[action.uid].pid;
-            break;
-
-        case 'SESSION_ADD':
-            pid = action.pid;
-            setCwd(pid);
-            break;
-
-        case 'SESSION_ADD_DATA':
-            const { data } = action;
-            const enterKey = data.indexOf('\n') > 0;
-
-            if (enterKey) {
-                setCwd(pid);
-            }
-            break;
-
-        case 'SESSION_SET_ACTIVE':
-            pid = uids[action.uid].pid;
-            setCwd(pid);
-            break;
+  const next = afterAll((err, results) => {
+    if (err) {
+      return cb(err);
     }
 
-    next(action);
+    const branch = results[0];
+    const remote = results[1];
+    const dirty = results[2];
+    const behind = results[3];
+    const ahead = results[4];
+
+    cb(null, {
+      branch: branch,
+      remote: remote,
+      dirty: dirty,
+      behind: behind,
+      ahead: ahead,
+    });
+  });
+
+  gitBranch(repo, next());
+  gitRemote(repo, next());
+  gitDirty(repo, next());
+  gitBehind(repo, next());
+  gitAhead(repo, next());
+};
+
+const setGit = repo => {
+  isGit(repo, exists => {
+    if (!exists) {
+      git = initialGitState();
+      notifications.emit('update::git', git);
+
+      return;
+    }
+
+    gitCheck(repo, (err, result) => {
+      if (err) {
+        throw err;
+      }
+
+      git = {
+        branch: result.branch,
+        remote: result.remote,
+        dirty: result.dirty,
+        behind: result.behind,
+        ahead: result.ahead,
+      };
+      notifications.emit('update::git', git);
+    });
+  });
+};
+
+exports.decorateHyper = (Hyper, { React }) => {
+  return class extends React.PureComponent {
+    constructor(props) {
+      super(props);
+
+      this.state = Object.assign({ cwd: '' }, initialGitState());
+
+      this.handleCwdClick = this.handleCwdClick.bind(this);
+      this.handleBranchClick = this.handleBranchClick.bind(this);
+      this.handleCwdUpdate = this.handleCwdUpdate.bind(this);
+      this.handleGitUpdate = this.handleGitUpdate.bind(this);
+    }
+
+    handleCwdClick(event) {
+      shell.openExternal('file://' + this.state.cwd);
+    }
+
+    handleBranchClick(event) {
+      shell.openExternal(this.state.remote);
+    }
+
+    handleCwdUpdate(cwd) {
+      this.setState({ cwd });
+    }
+
+    handleGitUpdate(git) {
+      this.setState(git);
+    }
+
+    render() {
+      const { customChildren } = this.props;
+      const existingChildren = customChildren
+        ? customChildren instanceof Array ? customChildren : [customChildren]
+        : [];
+
+      return React.createElement(
+        Hyper,
+        Object.assign({}, this.props, {
+          customInnerChildren: existingChildren.concat(
+            React.createElement(
+              'footer',
+              { className: 'footer_footer' },
+              React.createElement(
+                'div',
+                { className: 'footer_group group_overflow' },
+                React.createElement(
+                  'div',
+                  { className: 'component_component component_cwd' },
+                  React.createElement(
+                    'div',
+                    {
+                      className:
+                        'component_item item_icon item_cwd item_clickable',
+                      title: this.state.cwd,
+                      onClick: this.handleCwdClick,
+                      hidden: !this.state.cwd,
+                    },
+                    this.state.cwd ? tildify(String(this.state.cwd)) : '',
+                  ),
+                ),
+              ),
+              React.createElement(
+                'div',
+                { className: 'footer_group' },
+                React.createElement(
+                  'div',
+                  { className: 'component_component component_git' },
+                  React.createElement(
+                    'div',
+                    {
+                      className: `component_item item_icon item_branch ${
+                        this.state.remote ? 'item_clickable' : ''
+                      }`,
+                      title: this.state.remote,
+                      onClick: this.handleBranchClick,
+                      hidden: !this.state.branch,
+                    },
+                    this.state.branch,
+                  ),
+                  React.createElement(
+                    'div',
+                    {
+                      className:
+                        'component_item item_icon item_number item_dirty',
+                      title: `${this.state.dirty} dirty ${
+                        this.state.dirty > 1 ? 'files' : 'file'
+                      }`,
+                      hidden: !this.state.dirty,
+                    },
+                    this.state.dirty,
+                  ),
+                  React.createElement(
+                    'div',
+                    {
+                      className: 'component_item item_number item_behind',
+                      title: `${this.state.behind} ${
+                        this.state.behind > 1 ? 'commits' : 'commit'
+                      } behind`,
+                      hidden: !this.state.behind,
+                    },
+                    '↓' + this.state.behind,
+                  ),
+                  React.createElement(
+                    'div',
+                    {
+                      className: 'component_item item_number item_ahead',
+                      title: `${this.state.ahead} ${
+                        this.state.ahead > 1 ? 'commits' : 'commit'
+                      } ahead`,
+                      hidden: !this.state.ahead,
+                    },
+                    '↑' + this.state.ahead,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        }),
+      );
+    }
+
+    componentDidMount() {
+      // update state with current values
+      this.setState(Object.assign({ cwd: cwd }, git));
+
+      // update state for `cwd` changes
+      notifications.on('update::cwd', this.handleCwdUpdate);
+
+      // update state for `git` changes
+      notifications.on('update::git', this.handleGitUpdate);
+    }
+
+    componentWillUnmount() {
+      notifications.removeListener('update::cwd', this.handleCwdUpdate);
+      notifications.removeListener('update::git', this.handleGitUpdate);
+    }
+  };
+};
+
+exports.middleware = store => next => action => {
+  const uids = store.getState().sessions.sessions;
+
+  switch (action.type) {
+    case 'SESSION_SET_XTERM_TITLE':
+      pid = uids[action.uid].pid;
+      break;
+
+    case 'SESSION_ADD':
+      pid = action.pid;
+      setCwd(pid);
+      break;
+
+    case 'SESSION_ADD_DATA':
+      const { data } = action;
+      const enterKey = data.indexOf('\n') > 0;
+
+      if (enterKey) {
+        setCwd(pid);
+      }
+      break;
+
+    case 'SESSION_SET_ACTIVE':
+      pid = uids[action.uid].pid;
+      setCwd(pid);
+      break;
+  }
+
+  next(action);
 };
